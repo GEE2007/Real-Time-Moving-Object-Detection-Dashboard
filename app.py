@@ -1,6 +1,7 @@
 import os
 import tempfile
 
+import cv2
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -48,25 +49,38 @@ def build_detection_dataframe(results):
     rows = []
 
     for frame_idx, result in enumerate(results, start=1):
-        if getattr(result, "boxes", None) is None or len(result.boxes) == 0:
+        boxes = getattr(result, "boxes", None)
+        if boxes is None or len(boxes) == 0:
             continue
 
-        boxes = result.boxes.data.cpu().numpy()
-        for box in boxes:
-            x1, y1, x2, y2, conf, cls_id = box
+        box_data = boxes.data.cpu().numpy()
+        track_ids = boxes.id.cpu().numpy() if getattr(boxes, "id", None) is not None else None
+
+        for index, box in enumerate(box_data):
+            if len(box) < 6:
+                continue
+
+            x1, y1, x2, y2, conf, cls_id = box[:6]
+            track_id = None
+            if track_ids is not None and index < len(track_ids):
+                track_id = int(track_ids[index])
+            elif len(box) > 6:
+                track_id = int(box[6])
+
             rows.append(
                 {
                     "Frame": frame_idx,
                     "Confidence": round(float(conf), 4),
                     "Class": int(cls_id),
                     "Object": CLASS_NAMES.get(int(cls_id), "Other"),
+                    "Track_ID": track_id,
                 }
             )
 
     if rows:
         return pd.DataFrame(rows)
 
-    return pd.DataFrame(columns=["Frame", "Confidence", "Class", "Object"])
+    return pd.DataFrame(columns=["Frame", "Confidence", "Class", "Object", "Track_ID"])
 
 
 def find_processed_video_path(save_dir, source_path):
@@ -76,10 +90,11 @@ def find_processed_video_path(save_dir, source_path):
     source_name = os.path.splitext(os.path.basename(source_path))[0].lower()
     candidates = []
 
-    for entry in os.listdir(save_dir):
-        full_path = os.path.join(save_dir, entry)
-        if os.path.isfile(full_path) and entry.lower().endswith((".mp4", ".avi", ".mov")):
-            candidates.append(full_path)
+    for root, _, files in os.walk(save_dir):
+        for entry in files:
+            full_path = os.path.join(root, entry)
+            if os.path.isfile(full_path) and entry.lower().endswith((".mp4", ".avi", ".mov")):
+                candidates.append(full_path)
 
     if not candidates:
         return None
@@ -92,6 +107,45 @@ def find_processed_video_path(save_dir, source_path):
     return candidates[0]
 
 
+def convert_video_to_mp4(video_path):
+    if not video_path or not os.path.exists(video_path):
+        return None
+
+    ext = os.path.splitext(video_path)[1].lower()
+    if ext == ".mp4":
+        return video_path
+
+    output_path = os.path.splitext(video_path)[0] + ".mp4"
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if width % 2:
+        width += 1
+    if height % 2:
+        height += 1
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    if not writer.isOpened():
+        cap.release()
+        return None
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        writer.write(frame)
+
+    cap.release()
+    writer.release()
+    return output_path
+
+
 def run_yolo(video_path, confidence):
     results = model.track(
         source=video_path,
@@ -102,6 +156,12 @@ def run_yolo(video_path, confidence):
 
     save_dir = results[0].save_dir if results else None
     processed_video_path = find_processed_video_path(save_dir, video_path)
+
+    if processed_video_path and os.path.splitext(processed_video_path)[1].lower() != ".mp4":
+        converted_path = convert_video_to_mp4(processed_video_path)
+        if converted_path:
+            processed_video_path = converted_path
+
     detection_df = build_detection_dataframe(results)
 
     return processed_video_path, detection_df
@@ -222,6 +282,13 @@ st.write("This is a YOLOv8 object detection and tracking demo using a preprocess
 demo_video_path = os.path.join(os.path.dirname(__file__), "15781298_1920_1080_60fps.avi")
 if os.path.exists(demo_video_path):
     st.video(demo_video_path)
+    with open(demo_video_path, "rb") as f:
+        st.download_button(
+            "📥 Download Demo Video",
+            data=f,
+            file_name="demo_video.avi",
+            mime="video/x-msvideo",
+        )
 else:
     st.warning("Demo video is not available in the project folder yet.")
 
