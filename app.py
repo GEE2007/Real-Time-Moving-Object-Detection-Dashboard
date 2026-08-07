@@ -315,8 +315,7 @@ if uploaded_video is not None and run:
             processed_video_path, uploaded_df = run_yolo(temp_path, confidence)
         except Exception as exc:
             st.error(f"Detection failed: {exc}")
-            uploaded_df = pd.DataFrame(columns=["Frame", "Confidence", "Class", "Object"])
-            processed_video_path = None
+            st.stop()
 
     st.success("✅ Detection Completed!")
 
