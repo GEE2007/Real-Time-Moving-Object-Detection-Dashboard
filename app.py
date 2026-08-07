@@ -49,33 +49,25 @@ def build_detection_dataframe(results):
     rows = []
 
     for frame_idx, result in enumerate(results, start=1):
-        boxes = getattr(result, "boxes", None)
-        if boxes is None or len(boxes) == 0:
+        boxes = result.boxes
+        if boxes is None:
             continue
 
-        box_data = boxes.data.cpu().numpy()
-        track_ids = boxes.id.cpu().numpy() if getattr(boxes, "id", None) is not None else None
+        for i in range(len(boxes)):
+            cls_id = int(boxes.cls[i].item())
+            conf = float(boxes.conf[i].item())
 
-        for index, box in enumerate(box_data):
-            if len(box) < 6:
-                continue
-
-            x1, y1, x2, y2, conf, cls_id = box[:6]
             track_id = None
-            if track_ids is not None and index < len(track_ids):
-                track_id = int(track_ids[index])
-            elif len(box) > 6:
-                track_id = int(box[6])
+            if boxes.id is not None:
+                track_id = int(boxes.id[i].item())
 
-            rows.append(
-                {
-                    "Frame": frame_idx,
-                    "Confidence": round(float(conf), 4),
-                    "Class": int(cls_id),
-                    "Object": CLASS_NAMES.get(int(cls_id), "Other"),
-                    "Track_ID": track_id,
-                }
-            )
+            rows.append({
+                "Frame": frame_idx,
+                "Confidence": conf,
+                "Class": cls_id,
+                "Object": CLASS_NAMES.get(cls_id, "Other"),
+                "Track_ID": track_id
+            })
 
     if rows:
         return pd.DataFrame(rows)
