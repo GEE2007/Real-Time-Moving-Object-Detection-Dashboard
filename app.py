@@ -271,16 +271,18 @@ st.markdown("---")
 st.subheader("🎥 Demo Detection")
 st.write("This is a YOLOv8 object detection and tracking demo using a preprocessed sample video with bounding boxes.")
 
-demo_video_path = os.path.join(os.path.dirname(__file__), "15781298_1920_1080_60fps.avi")
+demo_video_path = os.path.join(os.path.dirname(__file__), "demo.mp4")
 if os.path.exists(demo_video_path):
     st.video(demo_video_path)
     with open(demo_video_path, "rb") as f:
-        st.download_button(
-            "📥 Download Demo Video",
-            data=f,
-            file_name="demo_video.avi",
-            mime="video/x-msvideo",
-        )
+        demo_bytes = f.read()
+
+    st.download_button(
+        "📥 Download Demo Video",
+        data=demo_bytes,
+        file_name="demo.mp4",
+        mime="video/mp4",
+)
 else:
     st.warning("Demo video is not available in the project folder yet.")
 
